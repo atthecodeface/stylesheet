@@ -1,0 +1,12 @@
+(jbuild_version 1)
+
+(library (
+  (public_name stylesheet)
+  (name stylesheet)
+  (libraries (
+    structured_doc
+    re
+    batteries
+  ))
+))
+
