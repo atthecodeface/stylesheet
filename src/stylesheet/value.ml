@@ -330,6 +330,21 @@ let as_float ?default svalue =
     | _ -> 0.
   )
 
+(*f as_int - get a int for an svalue *)
+let as_int ?default svalue =
+  if (is_none svalue) then (
+    match default with | Some f -> f | None -> raise (Bad_value "No default value provided when getting value as_int")
+  ) else (
+    match svalue with
+    | Sv_floats (n,f)    -> int_of_float f.(0)
+    | Sv_float_arr (n,f) -> int_of_float f.(0)
+    | Sv_rgb     f       -> int_of_float f.(0)
+    | Sv_ints (n,i)      -> i.(0)
+    | Sv_float   (Some f) -> int_of_float f
+    | Sv_int     (Some i) -> i
+    | _ -> 0
+  )
+
 (*f as_ints - get an int array for an svalue *)
 let as_ints ?default svalue =
   if (is_none svalue) then (
