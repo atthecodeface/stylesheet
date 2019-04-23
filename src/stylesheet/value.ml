@@ -32,7 +32,7 @@ let string_as_float_rex =
   let digit = Re.set "0123456789" in
   let float = Re.group (Re.seq [ Re.opt minus; Re.rep1 digit ; Re.opt point ; Re.rep digit] ) in
   let rest  = Re.group (Re.rep Re.any) in
-  let opt_whitespace = Re.rep Re.space in
+  let opt_whitespace = Re.(rep (alt [space; char ','])) in
   Re.compile (Re.seq [opt_whitespace ; float ; rest])
 
 (*f string_as_int_rex *)
@@ -40,7 +40,7 @@ let string_as_int_rex =
   let prefix = Re.seq [ Re.char '0' ; Re.set "xX" ] in
   let number = Re.group (Re.seq [ Re.opt prefix; Re.rep1 (Re.set "0123456789abcdefABCDEF")] ) in
   let rest  = Re.group (Re.rep Re.any) in
-  let opt_whitespace = Re.rep Re.space in
+  let opt_whitespace = Re.(rep (alt [space; char ','])) in
   Re.compile (Re.seq [opt_whitespace ; number ; rest])
 
 (*f extract_first_and_rest *)
@@ -103,25 +103,40 @@ let read_float_arr string =
   let (total, arrs) = acc_float_arrays (0,[]) string in
   (total, Array.(sub (concat arrs) 0 total))
 
+(*f read_ints_from_n : int array -> max -> string -> number -> (number,remaining_string) *)  
+let rec read_ints_from_n ints max string = function
+  | n when (n=max) -> (max, string)
+  | n -> (
+    match extract_first_and_rest string_as_int_rex string with
+    | None -> (n,"")
+    | Some (s1,s2) -> 
+       (
+         ints.(n) <- int_of_string s1;
+         read_ints_from_n ints max s2 (n+1)
+       )
+  )
+
+(*f read_int_arr : string  -> int array
+  read a int array from the string, as many ints as possible
+ *)
+let read_int_arr string = 
+  let rec acc_int_arrays acc s =
+    let max = 10 in
+    if (String.length s)=0 then acc else (
+      let ints = Array.make max 0 in
+      let (n,s) = read_ints_from_n ints max s 0 in
+      let (total,arrs) = acc in
+      let acc = (total+n,ints::arrs) in
+      acc_int_arrays acc s
+    )
+  in
+  let (total, arrs) = acc_int_arrays (0,[]) string in
+  (total, Array.(sub (concat arrs) 0 total))
+
 (*f read_ints *)
 let read_ints string num = 
   let ints = Array.make num 0 in
-  let rec read_ints_from_n n string =
-    if (n=num) then
-      n
-    else
-      (
-        match extract_first_and_rest string_as_int_rex string with
-        | None -> n
-        | Some s12 -> 
-           (
-             let (s1,s2) = s12 in
-             ints.(n) <- int_of_string s1;
-             read_ints_from_n (n+1) s2
-           )
-      )
-  in
-  let n = read_ints_from_n 0 string in
+  let (n,_) = read_ints_from_n ints num string 0 in
   fill_out_array ints num (max n 1) n 0
 
 (*f read_color *)
@@ -174,14 +189,15 @@ type t_styleable_value =
   | Sv_float_arr  of int * (float array)
   | Sv_floats     of int * (float array)
   | Sv_float      of float option
-  | Sv_int        of int option
+  | Sv_int_arr    of int * (int array)
   | Sv_ints       of int * (int array)
+  | Sv_int        of int option
   | Sv_rgb        of float array
   | Sv_string     of string option
   | Sv_token_list of string list
 
 (*t t_styleable_type *)
-type t_styleable_type = St_float_arr | St_floats of int | St_ints of int | St_float | St_int | St_rgb | St_string | St_token_list
+type t_styleable_type = St_float_arr | St_floats of int | St_int_arr | St_ints of int | St_float | St_int | St_rgb | St_string | St_token_list
 
 (*a Styleable_value module *)
 (*v sv_zero, sv_none_ints, sv_none_floats - for use as defaults *)
@@ -190,6 +206,7 @@ let none_floats = Array.make 0 0.
 let none_ints   = Array.make 0 0
 let sv_none_floats = Sv_floats (0, none_floats)
 let sv_none_float_arr = Sv_float_arr (0, none_floats)
+let sv_none_int_arr   = Sv_int_arr   (0, none_ints)
 let sv_none_ints   = Sv_ints (0, none_ints)
 let sv_none_float  = Sv_float None
 let sv_none_int    = Sv_int None
@@ -207,6 +224,7 @@ let stype v =
   | Sv_float _         -> St_float
   | Sv_floats (n,_)    -> St_floats n
   | Sv_float_arr (n,_) -> St_float_arr
+  | Sv_int_arr (n,_)   -> St_int_arr
   | Sv_ints   (n,_)    -> St_ints n
   | Sv_int _           -> St_int
   | Sv_rgb _           -> St_rgb
@@ -222,6 +240,7 @@ let is_none v =
   | Sv_float_arr (_,f) when (f==none_floats) -> true
   | Sv_rgb f           when (f==none_floats) -> true
   | Sv_ints (_,f)      when (f==none_ints)   -> true
+  | Sv_int_arr (_,f)   when (f==none_ints)   -> true
   | Sv_string None                           -> true
   | Sv_token_list []                         -> true
   | _ -> false
@@ -237,6 +256,7 @@ let str v =
     | Sv_int None         -> sfmt "flt:<None>"
     | Sv_floats (n,_)     -> sfmt "f%d:<None>" n
     | Sv_float_arr (_,_)  -> sfmt "fa:<None>"
+    | Sv_int_arr (_,_)    -> sfmt "ia:<None>"
     | Sv_ints   (n,_)     -> sfmt "i%d:<None>" n
     | Sv_rgb _            -> sfmt "rgb:<None>"
     | Sv_string None      -> sfmt "str:<None>"
@@ -246,8 +266,9 @@ let str v =
     match v with
     | Sv_float (Some f)   -> sfmt "flt:%f" f
     | Sv_int (Some i)     -> sfmt "int:%d" i
-    | Sv_floats (n,f)     -> sfmt "f%d:%s" n (String.concat " " (List.map (sfmt "%f") (Array.to_list f)))
-    | Sv_float_arr (n,f)  -> sfmt "fa%d:%s" n (String.concat " " (List.map (sfmt "%f") (Array.to_list f)))
+    | Sv_floats (n,f)     -> sfmt "f%d:%s" n (String.concat " " (List.map (sfmt "%g") (Array.to_list f)))
+    | Sv_float_arr (n,f)  -> sfmt "fa%d:%s" n (String.concat " " (List.map (sfmt "%g") (Array.to_list f)))
+    | Sv_int_arr (n,f)    -> sfmt "ia%d:%s" n (String.concat " " (List.map (sfmt "%d") (Array.to_list f)))
     | Sv_ints   (n,i)     -> sfmt "i%d:%s" n (String.concat " " (List.map (sfmt "%d") (Array.to_list i)))
     | Sv_rgb f            -> sfmt "rgb:%f %f %f" f.(0) f.(1) f.(2)
     | Sv_string (Some s)  -> sfmt "str:'%s'" s
@@ -272,6 +293,7 @@ let rec from_string stype value =
     | St_ints n     -> sv_none_ints
     | St_floats n   -> sv_none_floats
     | St_float_arr  -> sv_none_float_arr
+    | St_int_arr    -> sv_none_int_arr
     | St_rgb        -> sv_none_rgb
     | St_int        -> sv_none_int
     | St_float      -> sv_none_float
@@ -282,6 +304,7 @@ let rec from_string stype value =
     | St_ints n     -> ( let ints   = read_ints   value n in Sv_ints (n,ints) )
     | St_floats n   -> ( let floats = read_floats value n in Sv_floats (n,floats) )
     | St_float_arr  -> ( let (n,floats) = read_float_arr value in Sv_float_arr (n,floats) )
+    | St_int_arr    -> ( let (n,ints)   = read_int_arr   value in Sv_int_arr   (n,ints) )
     | St_rgb        -> Sv_rgb (read_color value)
     | St_int        -> ( let ints   = read_ints   value 1 in Sv_int (Some ints.(0)) )
     | St_float      -> ( let floats = read_floats value 1 in Sv_float (Some floats.(0)) )
@@ -324,10 +347,27 @@ let as_float ?default svalue =
     | Sv_floats (n,f) -> f.(0)
     | Sv_float_arr (n,f) -> f.(0)
     | Sv_rgb     f -> f.(0)
+    | Sv_int_arr (n,i) -> float i.(0)
     | Sv_ints (n,i) -> float i.(0)
     | Sv_float   (Some f) -> f
     | Sv_int     (Some i) -> float i
     | _ -> 0.
+  )
+
+(*f as_int - get a int for an svalue *)
+let as_int ?default svalue =
+  if (is_none svalue) then (
+    match default with | Some f -> f | None -> raise (Bad_value "No default value provided when getting value as_int")
+  ) else (
+    match svalue with
+    | Sv_floats (n,f)    -> int_of_float f.(0)
+    | Sv_float_arr (n,f) -> int_of_float f.(0)
+    | Sv_rgb     f       -> int_of_float f.(0)
+    | Sv_int_arr (n,i)   -> i.(0)
+    | Sv_ints (n,i)      -> i.(0)
+    | Sv_float   (Some f) -> int_of_float f
+    | Sv_int     (Some i) -> i
+    | _ -> 0
   )
 
 (*f as_ints - get an int array for an svalue *)
@@ -336,7 +376,8 @@ let as_ints ?default svalue =
     match default with | Some f -> f | None -> raise (Bad_value "No default value provided when getting value as_ints")
   ) else (
   match svalue with
-  | Sv_ints    (_,i) -> i
+  | Sv_int_arr  (_,i) -> i
+  | Sv_ints     (_,i) -> i
   | _ -> one_i_0
   )
 

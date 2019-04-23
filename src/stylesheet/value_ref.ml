@@ -67,6 +67,9 @@
   (*f get_value_as_float t - get the value as a float *)
   let get_value_as_float ?default t  =  Value.as_float ?default:default t.value
 
+  (*f get_value_as_int t - get the value as a int *)
+  let get_value_as_int ?default t  =  Value.as_int ?default:default t.value
+
   (*f get_value_as_ints t - get the value as an array of ints *)
   let get_value_as_ints ?default t   =  Value.as_ints ?default:default t.value
 
